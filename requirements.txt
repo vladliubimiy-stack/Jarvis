@@ -1,0 +1,6 @@
+paho-mqtt==2.1.0
+requests>=2.31
+SpeechRecognition>=3.10
+PyAudio>=0.2.14
+pyttsx3>=2.90
+python-dotenv>=1.0,<2
