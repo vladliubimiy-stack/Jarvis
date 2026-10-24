@@ -1,9 +1,11 @@
 
 import json
-import re
 import time
 import threading
 import requests
+import os
+from dotenv import load_dotenv
+from command_parser import quick_command
 import speech_recognition as sr
 import pyttsx3
 import paho.mqtt.client as mqtt
@@ -12,12 +14,16 @@ import paho.mqtt.client as mqtt
 # НАСТРОЙКИ
 # =========================
 
-BROKER = "127.0.0.1"
-PORT = 1883
-MICROPHONE_INDEX = 1
+load_dotenv()
 
-MODEL = "qwen2.5:3b"
-OLLAMA_URL = "http://localhost:11434/api/chat"
+BROKER = os.getenv("MQTT_HOST", "127.0.0.1")
+PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USER = os.getenv("MQTT_USER")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+MICROPHONE_INDEX = int(os.getenv("MICROPHONE_INDEX", "1"))
+
+MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
 
 # Пауза между попытками подключения
 RECONNECT_MIN_DELAY = 1
@@ -112,17 +118,15 @@ SYSTEM_PROMPT = """
 Твоя задача — понять смысл русской фразы и выбрать действие.
 Пользователь может говорить разговорно, использовать сленг,
 мат, ругательства, шутки, обращения и длинные предложения.
-Не обращай внимания на оскорбления и определяй именно намерение.
+Определяй только явно выраженную просьбу выполнить одно разрешённое действие.
 
 Доступные действия:
 
 light_on — включить свет.
-Примеры: "включи свет", "сделай светло",
-"темно, нихрена не видно", "зажги лампу".
+Примеры: "включи свет", "зажги лампу".
 
 light_off — выключить свет.
-Примеры: "выключи свет", "погаси лампу",
-"убери освещение", "хватит светить, выключи".
+Примеры: "выключи свет", "погаси лампу".
 
 shutter_open — открыть или поднять роллету.
 Примеры: "открой роллету", "подними рольставни".
@@ -131,7 +135,7 @@ shutter_close — закрыть или опустить роллету.
 Примеры: "закрой роллету", "опусти рольставни".
 
 shutter_stop — остановить движущуюся роллету.
-Примеры: "останови роллету", "стой, прекрати движение".
+Примеры: "останови роллету", "стой, останови роллету".
 
 unknown — если действие не относится к этим устройствам,
 намерение неясно или пользователь НЕ просит выполнять действие.
@@ -140,11 +144,10 @@ unknown — если действие не относится к этим уст
 1. Учитывай смысл всей фразы, а не отдельные слова.
 2. "Не включай свет" означает unknown.
 3. "Не выключай свет" означает unknown.
-4. Если пользователь сообщает, что темно и плохо видно,
-   обычно выбирай light_on.
-5. Если пользователь явно просит выключить свет — light_off.
-6. Не выполняй команды, которые пользователь отрицает,
-   цитирует или обсуждает как пример.
+4. Требуй явную просьбу с названием устройства и действием.
+5. Любое отрицание, цитату, гипотетический пример или обсуждение команды
+   трактуй как unknown; не исполняй её.
+6. Не выводи команду из описания состояния вроде "темно" или "свет включён".
 7. Не придумывай другие устройства и действия.
 8. Возвращай только JSON следующего вида:
    {"command":"light_on"}
@@ -162,72 +165,7 @@ def say(message):
     speaker.runAndWait()
 
 
-# =========================
-# БЫСТРЫЕ КОМАНДЫ
-# =========================
-
-def quick_command(text):
-    text = text.lower().replace("ё", "е")
-    words = re.findall(r"[а-яa-z]+", text)
-    w = set(words)
-
-    actions = {
-        "включи", "включить", "включай",
-        "выключи", "выключить", "выключай",
-        "зажги", "погаси", "отключи",
-        "открой", "открыть", "открывай",
-        "закрой", "закрыть", "закрывай",
-        "подними", "опусти", "останови",
-        "остановить", "стой"
-    }
-
-    for i in range(len(words) - 1):
-        if words[i] == "не" and words[i + 1] in actions:
-            return None
-
-    light_words = {"свет", "освещение", "лампу", "лампа"}
-    shutter_words = {
-        "роллету", "роллета", "роллеты",
-        "рольставни", "рольставню"
-    }
-
-    open_words = {"открой", "открыть", "открывай", "подними"}
-    close_words = {"закрой", "закрыть", "закрывай", "опусти"}
-    on_words = {"включи", "включить", "включай", "зажги"}
-    off_words = {
-        "выключи", "выключить", "выключай",
-        "погаси", "отключи"
-    }
-    stop_words = {"останови", "остановить", "стой"}
-
-    if w & shutter_words:
-        if w & stop_words:
-            return "shutter_stop"
-        if w & open_words:
-            return "shutter_open"
-        if w & close_words:
-            return "shutter_close"
-
-    if w & light_words:
-        if w & on_words:
-            return "light_on"
-        if w & off_words:
-            return "light_off"
-
-    if len(words) <= 3:
-        if w & stop_words and w & shutter_words:
-            return "shutter_stop"
-        if w & open_words:
-            return "shutter_open"
-        if w & close_words:
-            return "shutter_close"
-        if w & on_words:
-            return "light_on"
-        if w & off_words:
-            return "light_off"
-
-    return None
-
+# Быстрые команды разбираются в отдельном модуле без сетевых зависимостей.
 
 # =========================
 # ПОНИМАНИЕ СВОБОДНОЙ РЕЧИ
@@ -352,6 +290,12 @@ def listen_once():
 def main():
     try:
         print(f"Подключаюсь к MQTT: {BROKER}:{PORT}...")
+
+        if not MQTT_USER or not MQTT_PASSWORD:
+            raise RuntimeError(
+                "MQTT_USER и MQTT_PASSWORD обязательны. Заполните локальный .env."
+            )
+        client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
 
         # connect_async не блокирует запуск, если брокер пока недоступен.
         client.connect_async(BROKER, PORT, keepalive=60)
