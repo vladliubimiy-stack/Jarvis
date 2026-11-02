@@ -3,8 +3,11 @@ import re
 
 LIGHT_WORDS = {"свет", "освещение", "лампа", "лампу", "лампы", "лампе"}
 SHUTTER_WORDS = {
-    "роллета", "роллету", "роллеты", "роллетой",
-    "рольставни", "рольставню", "рольставней",
+    # Common spellings and inflections of «ролета/роллета».
+    "ролет", "ролета", "ролету", "ролетом", "ролете", "ролеты", "ролетой",
+    "роллет", "роллета", "роллету", "роллетом", "роллете", "роллеты", "роллетой",
+    "рольставни", "рольставню", "рольставней", "рольставнями",
+    "рольставка", "рольставку", "рольставкой", "рольставки", "рольставке",
     "ворота", "воротами", "воротах",
 }
 OPEN_WORDS = {"открой", "открыть", "открывай", "подними", "поднять"}
@@ -13,6 +16,15 @@ STOP_WORDS = {"останови", "остановить", "стой"}
 ON_WORDS = {"включи", "включить", "включай", "зажги", "зажечь"}
 OFF_WORDS = {"выключи", "выключить", "выключай", "погаси", "отключи"}
 ACTION_WORDS = OPEN_WORDS | CLOSE_WORDS | STOP_WORDS | ON_WORDS | OFF_WORDS
+
+
+def extract_wake_command(text: str) -> str | None:
+    """Return speech after a leading «Джарвис» wake word, or None without it."""
+    normalized = text.lower().replace("ё", "е")
+    match = re.match(r"^\s*джарвис\b[\s,!.?:;—-]*", normalized)
+    if not match:
+        return None
+    return normalized[match.end():].strip()
 
 
 def quick_command(text: str) -> str | None:
@@ -35,10 +47,9 @@ def quick_command(text: str) -> str | None:
     if actions and not (has_light or has_shutter):
         return "unknown"
 
-    if not actions and (has_light or has_shutter):
-        return "unknown"
-
     if not actions:
+        # The phrase may use a supported device with a less common verb or
+        # word order; let the constrained intent parser inspect it.
         return None
 
     action = next(iter(actions))
