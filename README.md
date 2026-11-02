@@ -25,7 +25,9 @@ The language model runs through the local Ollama HTTP API. Speech recognition cu
 
 ## Command safety
 
-The fast parser accepts only explicit commands that name a supported device and action. Negated, bare, conflicting, and status-only phrases are rejected. Other phrases go to the Ollama fallback, whose prompt also requires an explicit request. MQTT delivery confirmation means the broker accepted a message; the current firmware does not yet publish authoritative relay or shutter state.
+Every spoken command must begin with «Джарвис». Speech without the wake word is ignored. The fast parser accepts explicit commands for supported devices, including common spellings of «ролета/роллета» and «рольставни». Negated, bare, and conflicting commands are rejected. Less common phrasing can go to the Ollama fallback, which is limited to the same allowlisted actions and requires an explicit request. The wake word is checked before either parser is called.
+
+Jarvis logs the speech-recognition, Ollama, and MQTT-broker acknowledgement times to help locate delays. Google Speech Recognition still requires internet access. MQTT delivery confirmation means the broker accepted a message; the current firmware does not yet publish authoritative relay or shutter state.
 
 ## Checks
 
