@@ -5,7 +5,7 @@ import threading
 import requests
 import os
 from dotenv import load_dotenv
-from command_parser import quick_command
+from command_parser import extract_wake_command, quick_command
 import speech_recognition as sr
 import pyttsx3
 import paho.mqtt.client as mqtt
@@ -147,6 +147,8 @@ unknown — если действие не относится к этим уст
 4. Требуй явную просьбу с названием устройства и действием.
 5. Любое отрицание, цитату, гипотетический пример или обсуждение команды
    трактуй как unknown; не исполняй её.
+6. Вызывающий код уже проверил кодовое слово «Джарвис» в начале фразы;
+   анализируй только текст после этого слова.
 6. Не выводи команду из описания состояния вроде "темно" или "свет включён".
 7. Не придумывай другие устройства и действия.
 8. Возвращай только JSON следующего вида:
@@ -222,6 +224,7 @@ def execute(command):
     topic, payload = COMMANDS[command]
 
     try:
+        publish_started = time.time()
         info = client.publish(topic, payload, qos=1)
 
         if info.rc != mqtt.MQTT_ERR_SUCCESS:
@@ -234,6 +237,7 @@ def execute(command):
             say("Команда не подтверждена брокером")
             return
 
+        print(f"[ТАЙМИНГ] MQTT подтверждение: {time.time() - publish_started:.2f} сек")
         say(RESPONSES[command])
 
     except Exception as error:
@@ -309,18 +313,26 @@ def main():
             if not text:
                 continue
 
-            normalized = text.lower().replace("ё", "е").strip()
+            command_text = extract_wake_command(text)
+            if command_text is None:
+                # Ignore ambient speech unless it begins with the wake word.
+                continue
+
+            normalized = command_text.lower().replace("ё", "е").strip()
 
             if normalized in {
                 "выход",
                 "завершить работу",
-                "джарвис выключись",
-                "джарвис стоп"
+                "выключись",
+                "стоп"
             }:
                 say("Выключаюсь")
                 break
 
-            command = quick_command(text)
+            if not normalized:
+                continue
+
+            command = quick_command(command_text)
 
             if command:
                 print(f"[КОМАНДА] Быстрый режим: {command}")
@@ -328,7 +340,7 @@ def main():
                 continue
 
             try:
-                command = understand(text)
+                command = understand(command_text)
                 print(f"[КОМАНДА] Qwen: {command}")
 
                 if command == "unknown":
